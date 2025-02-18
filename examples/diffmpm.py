@@ -4,6 +4,8 @@ import os
 import math
 import numpy as np
 import matplotlib.pyplot as plt
+from custom.dynamicGen import linkGraph
+import copy
 
 real = ti.f32
 ti.init(default_fp=real, arch=ti.gpu, flatten_if=True)
@@ -47,7 +49,6 @@ x_avg = vec()
 actuation = scalar()
 actuation_omega = 20
 act_strength = 4
-
 
 
 def allocate_fields():
@@ -94,7 +95,11 @@ def p2g(f: ti.i32):
     for p in range(n_particles):
         base = ti.cast(x[f, p] * inv_dx - 0.5, ti.i32)
         fx = x[f, p] * inv_dx - ti.cast(base, ti.i32)
-        w = [0.5 * (1.5 - fx)**2, 0.75 - (fx - 1)**2, 0.5 * (fx - 0.5)**2]
+        w = [
+            0.5 * (1.5 - fx) ** 2,
+            0.75 - (fx - 1) ** 2,
+            0.5 * (fx - 0.5) ** 2,
+        ]
         new_F = (ti.Matrix.diag(dim=2, val=1) + dt * C[f, p]) @ F[f, p]
         J = (new_F).determinant()
         if particle_type[p] == 0:  # fluid
@@ -119,8 +124,7 @@ def p2g(f: ti.i32):
             cauchy = ti.Matrix([[1.0, 0.0], [0.0, 0.1]]) * (J - 1) * E
         else:
             mass = 1
-            cauchy = 2 * mu * (new_F - r) @ new_F.transpose() + \
-                     ti.Matrix.diag(2, la * (J - 1) * J)
+            cauchy = 2 * mu * (new_F - r) @ new_F.transpose() + ti.Matrix.diag(2, la * (J - 1) * J)
         cauchy += new_F @ A @ new_F.transpose()
         stress = -(dt * p_vol * 4 * inv_dx * inv_dx) * cauchy
         affine = stress + mass * C[f, p]
@@ -129,8 +133,7 @@ def p2g(f: ti.i32):
                 offset = ti.Vector([i, j])
                 dpos = (ti.cast(ti.Vector([i, j]), real) - fx) * dx
                 weight = w[i][0] * w[j][1]
-                grid_v_in[base +
-                          offset] += weight * (mass * v[f, p] + affine @ dpos)
+                grid_v_in[base + offset] += weight * (mass * v[f, p] + affine @ dpos)
                 grid_m_in[base + offset] += weight * mass
 
 
@@ -181,7 +184,11 @@ def g2p(f: ti.i32):
     for p in range(n_particles):
         base = ti.cast(x[f, p] * inv_dx - 0.5, ti.i32)
         fx = x[f, p] * inv_dx - ti.cast(base, real)
-        w = [0.5 * (1.5 - fx)**2, 0.75 - (fx - 1.0)**2, 0.5 * (fx - 0.5)**2]
+        w = [
+            0.5 * (1.5 - fx) ** 2,
+            0.75 - (fx - 1.0) ** 2,
+            0.5 * (fx - 0.5) ** 2,
+        ]
         new_v = ti.Vector([0.0, 0.0])
         new_C = ti.Matrix([[0.0, 0.0], [0.0, 0.0]])
 
@@ -203,8 +210,7 @@ def compute_actuation(t: ti.i32):
     for i in range(n_actuators):
         act = 0.0
         for j in ti.static(range(n_sin_waves)):
-            act += weights[i, j] * ti.sin(actuation_omega * t * dt +
-                                          2 * math.pi / n_sin_waves * j)
+            act += weights[i, j] * ti.sin(actuation_omega * t * dt + 2 * math.pi / n_sin_waves * j)
         act += bias[i]
         actuation[t, i] = ti.tanh(act)
 
@@ -274,10 +280,12 @@ class Scene:
         real_dy = h / h_count
         for i in range(w_count):
             for j in range(h_count):
-                self.x.append([
-                    x + (i + 0.5) * real_dx + self.offset_x,
-                    y + (j + 0.5) * real_dy + self.offset_y
-                ])
+                self.x.append(
+                    [
+                        x + (i + 0.5) * real_dx + self.offset_x,
+                        y + (j + 0.5) * real_dy + self.offset_y,
+                    ]
+                )
                 self.actuator_id.append(actuation)
                 self.particle_type.append(ptype)
                 self.n_particles += 1
@@ -309,8 +317,17 @@ def fish(scene):
     scene.set_n_actuators(4)
 
 
+def realFish(scene):
+    scene.add_rect(0.025, 0.025, 0.95, 0.1, -1, ptype=0)
+    scene.add_rect(0.1, 0.2, 0.15, 0.05, -1)
+    scene.add_rect(0.075, 0.175, 0.025, 0.05, 0)
+    scene.add_rect(0.075, 0.225, 0.025, 0.05, 1)
+    scene.add_rect(0.15, 0.175, 0.025, 0.025, 2)
+    scene.set_n_actuators(3)
+
+
 def robot(scene):
-    scene.set_offset(0.1, 0.03)
+    scene.set_offset(0.2, 0.2)
     scene.add_rect(0.0, 0.1, 0.3, 0.1, -1)
     scene.add_rect(0.0, 0.0, 0.05, 0.1, 0)
     scene.add_rect(0.05, 0.0, 0.05, 0.1, 1)
@@ -340,16 +357,10 @@ def visualize(s, folder):
     gui.show(f'{folder}/{s:04d}.png')
 
 
-def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--iters', type=int, default=100)
-    options = parser.parse_args()
-
-    # initialization
+def train(robot, iters):
     scene = Scene()
-    robot(scene)
+    robot.generateRobot(scene)
     scene.finalize()
-    allocate_fields()
 
     for i in range(n_actuators):
         for j in range(n_sin_waves):
@@ -362,12 +373,13 @@ def main():
         particle_type[i] = scene.particle_type[i]
 
     losses = []
-    for iter in range(options.iters):
+    for iter in range(iters):
         with ti.ad.Tape(loss):
             forward()
         l = loss[None]
         losses.append(l)
-        print('i=', iter, 'loss=', l)
+        if iter % 10 == 0:
+            print('i=', iter, 'loss=', l)
         learning_rate = 0.1
 
         for i in range(n_actuators):
@@ -376,17 +388,91 @@ def main():
                 weights[i, j] -= learning_rate * weights.grad[i, j]
             bias[i] -= learning_rate * bias.grad[i]
 
-        if iter % 10 == 0:
-            # visualize
+        robot.loss = l
+
+        if iter == iters - 1:
             forward(1500)
             for s in range(15, 1500, 16):
                 visualize(s, 'diffmpm/iter{:03d}/'.format(iter))
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--iters', type=int, default=100)
+    options = parser.parse_args()
+
+    # initialization
+    # bottom, top, left, right (does not have to equal 1.0)
+    blockweights = [0.50, 0.1, 0.50, 0.50]
+    popSize = 5
+    robotSize = 16
+    blockSize = 0.04
+
+    gens = []
+
+    # build one parent just to call allocate_fields
+    parent = linkGraph(blockSize, blockweights)
+    parent.buildToTarget(robotSize)
+    scene = Scene()
+    parent.generateRobot(scene)
+    scene.finalize()
+    allocate_fields()
+
+    # build initial set
+    children = []
+    for i in range(popSize):
+        member = linkGraph(blockSize, blockweights)
+        member.buildToTarget(robotSize)
+        children.append(member)
+
+    for i, child in enumerate(children):
+        print("Child ", i + 1)
+        train(child, options.iters)
+        print("Best loss: ", child.loss)
+
+    # pick best of initial population
+    bestloss = 0.0
+    bestChild = None
+    for child in children:
+        if child.loss < bestloss:
+            bestChild = child
+            bestloss = child.loss
+
+    parent = bestChild
+    # make children and evolve
+    for a in range(10):
+        print("Gen: ", a + 1)
+        for i in range(popSize):
+            child = copy.deepcopy(parent)
+            child.remove(3)
+            child.buildToTarget(robotSize)
+            children[i] = child
+
+        # Train all children and record last loss
+        for i, child in enumerate(children):
+            print("Child ", i)
+            train(child, options.iters)
+
+        # pick best of children
+        bestloss = 0.0
+        bestChild = None
+        for child in children:
+            if child.loss < bestloss:
+                bestChild = child
+                bestloss = child.loss
+
+        print("Best loss from previous training: ", bestloss)
+        gens.append(bestloss)
+        if bestChild.loss < parent.loss:
+            parent = bestChild
+        else:
+            print("Not better than parent!")
 
     # ti.profiler_print()
     plt.title("Optimization of Initial Velocity")
     plt.ylabel("Loss")
     plt.xlabel("Gradient Descent Iterations")
-    plt.plot(losses)
+    plt.plot(gens)
     plt.show()
 
 
