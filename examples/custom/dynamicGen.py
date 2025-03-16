@@ -11,6 +11,8 @@ class linkGraph:
         self.sides = ['bottom', 'top', 'left', 'right']
         self.links.append(link(0.0, 0.0, self.linkSize, self.linkSize, -1))
         self.loss = 0.0
+        self.gen = 0
+        self.num = 0
 
     def buildToTarget(self, numLinks):
         while len(self.links) < numLinks:
