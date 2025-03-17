@@ -7,6 +7,10 @@ https://github.com/taichi-dev/difftaichi
 
 This repo has been modified to focus on the `diffmpm.py` example. The changes and enhancements focus on randomely generating chain-based creatures and evolving a population over time. The fitness for evolution is the same fitness value used to evaluate loss in gradiant decent.
 
+The code to randomly build chain-based creatures out of blocks can be found in the custom directory inside of examples. The weights for which direction to randomly grow in can also be modified.
+
+By defualt, an initial population will be randomely generated, the best will be selected as the parent, and generations will begin evolving from there. If no child can acheive a better loss than the parent after training, then another round begins with the same parent. All creations are saved to the `creatureDumps` direcotry for playback and visualization later.
+
 ## How to run
 Step 1: Install [`Taichi`](https://github.com/taichi-dev/taichi) with `pip`:
 
