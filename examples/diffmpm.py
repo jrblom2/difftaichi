@@ -382,8 +382,8 @@ def main():
     # bottom, top, left, right (does not have to equal 1.0)
     blockweights = [0.50, 0.50, 0.50, 0.50]
     popSize = 1
-    robotSize = 30
-    blockSize = 0.04
+    robotSize = 16
+    blockSize = 0.035
 
     genNum = 0
 
