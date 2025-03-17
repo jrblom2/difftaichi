@@ -464,6 +464,8 @@ def main():
         print("Best loss from previous training: ", bestloss)
         gens.append(bestloss)
         genNum += 1
+
+        # Write to file
         for i, child in enumerate(children):
             file = f'creatureDumps/{timestamp}/gen{genNum}child{i}parent{parent.gen},{parent.num}'
             with open(file, 'wb') as f:
@@ -473,13 +475,6 @@ def main():
 
         else:
             print("Not better than parent!")
-
-    # ti.profiler_print()
-    plt.title("Optimization of Initial Velocity")
-    plt.ylabel("Loss")
-    plt.xlabel("Gradient Descent Iterations")
-    plt.plot(gens)
-    plt.show()
 
 
 if __name__ == '__main__':

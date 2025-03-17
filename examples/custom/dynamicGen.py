@@ -14,10 +14,12 @@ class linkGraph:
         self.gen = 0
         self.num = 0
 
+    # builds robot up to target size
     def buildToTarget(self, numLinks):
         while len(self.links) < numLinks:
             self.addRandom()
 
+    # get correct size to adjust for in scene
     def measure(self):
         left = 0.0
         right = 0.0
@@ -35,6 +37,7 @@ class linkGraph:
 
         return -left + 0.05, -bottom + 0.05
 
+    # remove blocks on edges
     def remove(self, num):
         total = len(self.links)
         while len(self.links) > total - num:
@@ -66,6 +69,7 @@ class linkGraph:
         else:
             return False
 
+    # randomly place a new block
     def addRandom(self):
         acctuation = len(self.links) - 1
         linkIndex = random.randint(0, len(self.links) - 1)
