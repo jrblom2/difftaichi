@@ -1,9 +1,3 @@
-<div align="center">
-  <h3> python3 diffmpm.py </h3>
-  <img  width="400px" src="https://github.com/yuanming-hu/public_files/raw/master/learning/difftaichi/diffmpm80.gif">
-</div>        
-
-
 ## Description
 This repo is a fork off of some amazing original work by:
 Yuanming Hu, Luke Anderson, Tzu-Mao Li, Qi Sun, Nathan Carr, Jonathan Ragan-Kelley, Frédo Durand
