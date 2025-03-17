@@ -42,10 +42,7 @@ grid_v_out = vec()
 C, F = mat(), mat()
 
 loss = scalar()
-xmin = scalar()
 
-
-# higher base act strength and number of sin waves to get more dramatic movement faster.
 n_sin_waves = 8
 weights = scalar()
 bias = scalar()
@@ -64,7 +61,7 @@ def allocate_fields():
     ti.root.dense(ti.i, n_particles).place(actuator_id, particle_type)
     ti.root.dense(ti.k, max_steps).dense(ti.l, n_particles).place(x, v, C, F)
     ti.root.dense(ti.ij, n_grid).place(grid_v_in, grid_m_in, grid_v_out)
-    ti.root.place(loss, x_avg, xmin)
+    ti.root.place(loss, x_avg)
 
     ti.root.lazy_grad()
 
@@ -100,11 +97,7 @@ def p2g(f: ti.i32):
     for p in range(n_particles):
         base = ti.cast(x[f, p] * inv_dx - 0.5, ti.i32)
         fx = x[f, p] * inv_dx - ti.cast(base, ti.i32)
-        w = [
-            0.5 * (1.5 - fx) ** 2,
-            0.75 - (fx - 1) ** 2,
-            0.5 * (fx - 0.5) ** 2,
-        ]
+        w = [0.5 * (1.5 - fx) ** 2, 0.75 - (fx - 1) ** 2, 0.5 * (fx - 0.5) ** 2]
         new_F = (ti.Matrix.diag(dim=2, val=1) + dt * C[f, p]) @ F[f, p]
         J = (new_F).determinant()
         if particle_type[p] == 0:  # fluid
@@ -189,11 +182,7 @@ def g2p(f: ti.i32):
     for p in range(n_particles):
         base = ti.cast(x[f, p] * inv_dx - 0.5, ti.i32)
         fx = x[f, p] * inv_dx - ti.cast(base, real)
-        w = [
-            0.5 * (1.5 - fx) ** 2,
-            0.75 - (fx - 1.0) ** 2,
-            0.5 * (fx - 0.5) ** 2,
-        ]
+        w = [0.5 * (1.5 - fx) ** 2, 0.75 - (fx - 1.0) ** 2, 0.5 * (fx - 0.5) ** 2]
         new_v = ti.Vector([0.0, 0.0])
         new_C = ti.Matrix([[0.0, 0.0], [0.0, 0.0]])
 
@@ -285,12 +274,7 @@ class Scene:
         real_dy = h / h_count
         for i in range(w_count):
             for j in range(h_count):
-                self.x.append(
-                    [
-                        x + (i + 0.5) * real_dx + self.offset_x,
-                        y + (j + 0.5) * real_dy + self.offset_y,
-                    ]
-                )
+                self.x.append([x + (i + 0.5) * real_dx + self.offset_x, y + (j + 0.5) * real_dy + self.offset_y])
                 self.actuator_id.append(actuation)
                 self.particle_type.append(ptype)
                 self.n_particles += 1
@@ -312,7 +296,29 @@ class Scene:
         n_actuators = n_act
 
 
-gui = ti.GUI("Differentiable MPM", (640, 640), background_color=0x000000)
+def fish(scene):
+    scene.add_rect(0.025, 0.025, 0.95, 0.1, -1, ptype=0)
+    scene.add_rect(0.1, 0.2, 0.15, 0.05, -1)
+    scene.add_rect(0.1, 0.15, 0.025, 0.05, 0)
+    scene.add_rect(0.125, 0.15, 0.025, 0.05, 1)
+    scene.add_rect(0.2, 0.15, 0.025, 0.05, 2)
+    scene.add_rect(0.225, 0.15, 0.025, 0.05, 3)
+    scene.set_n_actuators(4)
+
+
+def robot(scene):
+    scene.set_offset(0.1, 0.03)
+    scene.add_rect(0.0, 0.1, 0.3, 0.1, -1)
+    scene.add_rect(0.0, 0.0, 0.05, 0.1, 0)
+    scene.add_rect(0.05, 0.0, 0.05, 0.1, 1)
+    scene.add_rect(0.2, 0.0, 0.05, 0.1, 2)
+    scene.add_rect(0.25, 0.0, 0.05, 0.1, 3)
+    scene.set_n_actuators(4)
+
+
+color1 = 0x000000
+color2 = 0xFFFFFF
+gui = ti.GUI("Differentiable MPM", (1000, 1000), background_color=color1)
 
 
 def visualize(s, folder):
@@ -321,26 +327,35 @@ def visualize(s, folder):
     particles = x.to_numpy()[s]
     actuation_ = actuation.to_numpy()
     for i in range(n_particles):
-        color = 0xFFFFFF
+        color = color2
         if aid[i] != -1:
             act = actuation_[s - 1, int(aid[i])]
             color = ti.rgb_to_hex((0.5 - act, 0.5 - abs(act), 0.5 + act))
         colors[i] = color
     gui.circles(pos=particles, color=colors, radius=1.5)
-    gui.line((0.05, 0.02), (0.95, 0.02), radius=3, color=0xFFFFFF)
+    gui.line((0.05, 0.02), (0.95, 0.02), radius=3, color=color2)
 
     os.makedirs(folder, exist_ok=True)
     gui.show(f'{folder}/{s:04d}.png')
 
 
-def train(robot, iters):
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--iters', type=int, default=100)
+    options = parser.parse_args()
+
+    # initialization
     scene = Scene()
+
+    file = 'creatureDumps/2025-03-11_14-56-01/gen6child6'
+    with open(file, 'rb') as f:
+        robot = pickle.load(f)
+
     robot.generateRobot(scene)
     scene.finalize()
+    allocate_fields()
 
     for i in range(n_actuators):
-        # Reset bias, this is a manual change
-        bias[i] = 0.0
         for j in range(n_sin_waves):
             weights[i, j] = np.random.randn() * 0.01
 
@@ -351,130 +366,32 @@ def train(robot, iters):
         particle_type[i] = scene.particle_type[i]
 
     losses = []
-    for iter in range(iters):
+    for iter in range(options.iters):
         with ti.ad.Tape(loss):
             forward()
         l = loss[None]
         losses.append(l)
-        if iter % 10 == 0:
-            print('i=', iter, 'loss=', l)
+        print('i=', iter, 'loss=', l)
         learning_rate = 0.1
 
         for i in range(n_actuators):
             for j in range(n_sin_waves):
+                # print(weights.grad[i, j])
                 weights[i, j] -= learning_rate * weights.grad[i, j]
             bias[i] -= learning_rate * bias.grad[i]
 
-        robot.loss = l
-
-        if iter == iters - 1:
+        if iter == 10 or iter == 99:
+            # visualize
             forward(2000)
             for s in range(15, 2000, 16):
                 visualize(s, 'diffmpm/iter{:03d}/'.format(iter))
 
-
-def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--iters', type=int, default=50)
-    options = parser.parse_args()
-
-    # initialization
-    # bottom, top, left, right (does not have to equal 1.0)
-    blockweights = [0.50, 0.50, 0.50, 0.50]
-    popSize = 1
-    robotSize = 30
-    blockSize = 0.04
-
-    genNum = 0
-
-    gens = []
-
-    # build one parent just to call allocate_fields
-    parent = linkGraph(blockSize, blockweights)
-    parent.buildToTarget(robotSize)
-    scene = Scene()
-    parent.generateRobot(scene)
-    scene.finalize()
-    allocate_fields()
-
-    # build initial set
-    children = []
-
-    # This toggles allows resuming the evolution from a generation saved to a file
-    if False:
-        for i in range(popSize):
-            file = f'creatureDumps/2025-03-13_14-20-04/gen2child{i}parent1,8'
-            with open(file, 'rb') as f:
-                child = pickle.load(f)
-                child.num = i
-                children.append(child)
-    else:
-        for i in range(popSize):
-            member = linkGraph(blockSize, blockweights)
-            member.buildToTarget(robotSize)
-            member.num = i
-            children.append(member)
-
-    timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    os.mkdir(f'creatureDumps/{timestamp}')
-
-    for i, child in enumerate(children):
-        file = f'creatureDumps/{timestamp}/gen{genNum}child{i}'
-        with open(file, 'wb') as f:
-            pickle.dump(child, f)
-
-    for i, child in enumerate(children):
-        print("Child ", i + 1)
-        train(child, options.iters)
-        print("Best loss: ", child.loss)
-
-    # pick best of initial population
-    bestloss = 0.0
-    bestChild = None
-    for child in children:
-        if child.loss < bestloss:
-            bestChild = child
-            bestloss = child.loss
-
-    parent = bestChild
-    # make children and evolve
-    for a in range(100):
-        print("Gen: ", a + 1)
-        for i in range(popSize):
-            child = copy.deepcopy(parent)
-            child.remove(5)
-            child.buildToTarget(robotSize)
-            child.gen = a + 1
-            child.num = i
-            children[i] = child
-
-        # Train all children and record last loss
-        for i, child in enumerate(children):
-            print("Child ", i)
-            train(child, options.iters)
-
-        # pick best of children
-        bestloss = 0.0
-        bestChild = None
-        for i, child in enumerate(children):
-            if child.loss < bestloss:
-                bestChild = child
-                bestloss = child.loss
-
-        print("Best loss from previous training: ", bestloss)
-        gens.append(bestloss)
-        genNum += 1
-
-        # Write to file
-        for i, child in enumerate(children):
-            file = f'creatureDumps/{timestamp}/gen{genNum}child{i}parent{parent.gen},{parent.num}'
-            with open(file, 'wb') as f:
-                pickle.dump(child, f)
-        if bestChild.loss < parent.loss:
-            parent = bestChild
-
-        else:
-            print("Not better than parent!")
+    # ti.profiler_print()
+    # plt.title("Optimization of Initial Velocity")
+    # plt.ylabel("Loss")
+    # plt.xlabel("Gradient Descent Iterations")
+    # plt.plot(losses)
+    # plt.show()
 
 
 if __name__ == '__main__':
